@@ -45,68 +45,65 @@ struct (0xB1C2D3E4) CancelEscrow {
     queryId: uint32
 }
 
+type MessageBody = InitializeEscrow | RequestFunds | ReleaseFunds | CancelEscrow;
+
 fun onInternalMessage(in: InMessage) {
     if (in.body.isEmpty()) {
         return;
     }
     
-    val opcode = in.body.loadUint(32);
+    val opcode = in.body.preloadUint(32);
     
-    if (opcode == 0xE3D2C1B4) { // InitializeEscrow
-        val queryId = in.body.loadUint(32);
-        val recipient = in.body.loadAddress();
-        val amount = in.body.loadUint(64);
+    if (opcode == 0xE3D2C1B4 || opcode == 0xF4E3D2C1 || opcode == 0xA1B2C3D4 || opcode == 0xB1C2D3E4) {
+        val msg = MessageBody.fromSlice(in.body);
         
-        var escrow = lazy EscrowSystem.load();
-        escrow.owner = in.senderAddress;
-        escrow.recipient = recipient;
-        escrow.amount = amount;
-        escrow.isReleased = false;
-        escrow.isRequested = false;
-        escrow.store();
-    }
-    else if (opcode == 0xF4E3D2C1) { // RequestFunds
-        val queryId = in.body.loadUint(32);
-        
-        var escrow = lazy EscrowSystem.load();
-        assert (in.senderAddress == escrow.recipient) throw 101;
-        assert (!escrow.isRequested) throw 102;
-        escrow.isRequested = true;
-        escrow.store();
-    }
-    else if (opcode == 0xA1B2C3D4) { // ReleaseFunds
-        val queryId = in.body.loadUint(32);
-        
-        var escrow = lazy EscrowSystem.load();
-        assert (in.senderAddress == escrow.owner) throw 103;
-        assert (escrow.isRequested) throw 108;
-        assert (!escrow.isReleased) throw 109;
-        escrow.isReleased = true;
-        escrow.store();
-        val res = createMessage({
-            bounce: false,
-            dest: escrow.recipient,
-            value: contract.getOriginalBalance() - 100000000 
-        });
-        res.send(SEND_MODE_CARRY_ALL_BALANCE);
-    }
-    else if (opcode == 0xB1C2D3E4) { // CancelEscrow
-        val queryId = in.body.loadUint(32);
-        
-        var escrow = lazy EscrowSystem.load();
-        assert (in.senderAddress == escrow.owner) throw 104;
-        assert (!escrow.isReleased) throw 107;
-        escrow.isReleased = true;
-        escrow.store();
-        val res = createMessage({
-            bounce: false,
-            dest: in.senderAddress, 
-            value: contract.getOriginalBalance() - 100000000 
-        });
-        res.send(SEND_MODE_CARRY_ALL_BALANCE);
-    }
-    else {
-        throw 100; // Unknown opcode
+        match (msg) {
+            InitializeEscrow => {
+                var escrow = lazy EscrowSystem.load();
+                escrow.owner = in.senderAddress;
+                escrow.recipient = msg.recipient;
+                escrow.amount = msg.amount;
+                escrow.isReleased = false;
+                escrow.isRequested = false;
+                escrow.store();
+            }
+            RequestFunds => {
+                var escrow = lazy EscrowSystem.load();
+                assert (in.senderAddress == escrow.recipient) throw 101;
+                assert (!escrow.isRequested) throw 102;
+                escrow.isRequested = true;
+                escrow.store();
+            }
+            ReleaseFunds => {
+                var escrow = lazy EscrowSystem.load();
+                assert (in.senderAddress == escrow.owner) throw 103;
+                assert (escrow.isRequested) throw 108;
+                assert (!escrow.isReleased) throw 109;
+                escrow.isReleased = true;
+                escrow.store();
+                val res = createMessage({
+                    bounce: false,
+                    dest: escrow.recipient,
+                    value: contract.getOriginalBalance() - 100000000 
+                });
+                res.send(SEND_MODE_CARRY_ALL_BALANCE);
+            }
+            CancelEscrow => {
+                var escrow = lazy EscrowSystem.load();
+                assert (in.senderAddress == escrow.owner) throw 104;
+                assert (!escrow.isReleased) throw 107;
+                escrow.isReleased = true;
+                escrow.store();
+                val res = createMessage({
+                    bounce: false,
+                    dest: in.senderAddress, 
+                    value: contract.getOriginalBalance() - 100000000 
+                });
+                res.send(SEND_MODE_CARRY_ALL_BALANCE);
+            }
+        }
+    } else {
+        throw 100; // Unknown message type
     }
 }
 
